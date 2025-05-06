@@ -1,0 +1,996 @@
+---
+title: "CDA_Project"
+author: "24341638-Kenrick LIM"
+date: "2024-09-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+## Youtube Link
+https://youtu.be/k6_FzlGZWls
+
+```{r}
+Countriesdeath<-read.csv("Countries and death causes.csv",sep=",",header=TRUE)
+pop<-read.csv("API_SP.POP.TOTL_DS2_en_csv_v2_31753.csv",sep=",",header=TRUE,skip = 4)
+GDP<-read.csv("API_NY.GDP.PCAP.CD_DS2_en_csv_v2_31681.csv",sep=",",header=TRUE,skip = 4)
+```
+
+Above is the line of code that reads the data file required to conduct the analysis which contains the countries death , GDP and the population
+
+# Exploratory Data Analysis(EDA):
+
+In here, we wil explore the data that we are going to use in this Project. We can use summary(), str(), View() and etc to see what is happening to the data
+
+```{r}
+summary(Countriesdeath)
+str(Countriesdeath)
+View(Countriesdeath)
+summary(GDP)
+str(GDP)
+View(GDP)
+summary(pop)
+str(pop)
+View(pop)
+```
+
+In here, The use of summary(),str(),View() is to provide the data type , summary and the contents of the data which can be useful to check any NA and guiding us for doing data cleaning and EDA.Turns out there are no missing values in the Countries and death data whereas in both GDP and Population had those but GDP has the most one.
+
+```{r}
+Countriesdeath_modify<-Countriesdeath
+GDPS<-GDP
+pops<-pop
+```
+
+Then, we are trying to duplicate the data for countries/death, gdp and population and the purpose is to keep the original data because if we use the original data to merge and do transformation we cannot refer back to the original data since we already use it.
+
+# Data Cleaning and Transformation
+
+```{r}
+library(tidyr)
+library(dplyr)
+# Reshape the GDP dataset from wide to long format
+GDPS <- GDPS %>%
+  pivot_longer(cols = starts_with("X"),  # Select columns that start with 'X' (e.g., X1960, X1961...)
+               names_to = "Year",        # New column for the years
+               names_prefix = "X",       # Remove the 'X' from the year column names
+               values_to = "GDP_per_capita")  # Name of the new column for GDP values
+
+# Convert 'Year' from character to numeric
+GDPS$Year <- as.numeric(GDPS$Year)
+
+# View the reshaped GDP dataset
+head(GDPS)
+
+# Reshape the Population dataset from wide to long format
+population_long <- pops %>%
+  pivot_longer(cols = starts_with("X"), names_to = "Year", values_to = "Population") %>%
+  mutate(Year = as.numeric(sub("X", "", Year)))
+# View the reshaped GDP dataset
+population_long
+```
+
+After loading the dataset, we notice that GDP and population has the same data format and structure.Therefore, a conversion and adding year column since it is showing every single year in each column which is not practical as well as the value of GDP and Population.
+
+```{r}
+range(GDPS$Year)
+range(population_long$Year)
+range(Countriesdeath_modify$Year)
+```
+
+Although, each dataset may contain years, However it is crucial to check the range since each dataset may have different range and this is important as well to determine the x and y for dataset when merging. These are the code check the range.
+
+```{r}
+# Rename columns to prepare for merging
+colnames(GDPS)[colnames(GDPS) == "Country.Name"] <- "Country"
+colnames(Countriesdeath_modify)[colnames(Countriesdeath_modify) == "Entity"] <- "Country"
+colnames(GDPS)[colnames(GDPS) == "Country.Code"] <- "Country Code"
+colnames(Countriesdeath_modify)[colnames(Countriesdeath_modify) == "Code"] <- "Country Code"
+colnames(population_long)[colnames(population_long) == "Country.Name"] <- "Country"
+colnames(population_long)[colnames(population_long) == "Country.Code"] <- "Country Code"
+```
+
+There is also renaming the column and the purpose of this is to had a same column name to prevent confusion of column names since these column will be the main purpose for merging between table.
+
+```{r}
+library(dplyr)
+gdp_population_merged <- merge(
+  GDPS %>% dplyr::select(Country, `Country Code`, Year, GDP_per_capita),
+  population_long %>% dplyr::select(Country, `Country Code`, Year, Population),
+  by = c("Country", "Country Code", "Year"))
+
+gdp_population_merged2<-gdp_population_merged %>%
+  filter(!(Year >= 1960 & Year <= 1989) & !(Year >= 2020 & Year <= 2023)) %>%
+  dplyr::select(-Country)
+
+unmatched_countries <- list()
+
+# Loop through each country code in the GDP dataset
+for (i in 1:nrow(gdp_population_merged2)) {
+  
+  # Find the matching row in the death causes dataset based on the Country.Code
+  match_index <- which(Countriesdeath_modify$Country.Code == gdp_population_merged2$Country.Code[i])
+  
+  # If no match is found, store the country code in the unmatched list
+  if (length(match_index) == 0) {
+    unmatched_countries <- append(unmatched_countries, gdp_population_merged2$Country.Code[i])
+  }
+}
+
+# Ensure correct selection and merge on shared columns
+merged_data <- merge(Countriesdeath_modify, gdp_population_merged2, by = c("Country Code", "Year"),all = TRUE)
+```
+
+Here, the GDP and population data is merged and the next thing to do is omitting the rows that contain the given years.Notice the purpose of showing the range of years between dataset in the previous step.Also removing countries from the data since only Country Code and Year will be used during the merge with the Countries data. Since involivng Countries during the merge may cause missing data since there are countries with same Country code but having different name but still the same countries.
+
+Having said that, the use of for loops does help in this role since it search the countries row by row and if there is no match found between the GDP and death causes datasets, it adds that country to the unmatched_countries list. This approach ensures that only the relevant country codes, which exist in both datasets, are included for further analysis. Additionally, by filtering out rows from specific years, we are narrowing down the dataset to a consistent range of data, which will reduce noise and ensure that we are working with data that is comparable over time. This is crucial, especially when merging datasets from different sources with varying levels of granularity and time coverage. The next step is to verify if any unmatched countries need special treatment or further investigation to understand the reason for the mismatch, potentially indicating missing or incomplete data.
+
+Finally, we then merge the dataset which will be used for further data cleaning.
+
+```{r}
+colSums(is.na(merged_data))
+sum(is.na(merged_data))
+```
+
+This code is to check if there is any missing values in the given merged data which can be helpful to detect which one we are focusing on imputation data .
+
+```{r}
+library(dplyr)
+
+# Filter the dataframe for rows where the 'Country Code' is missing or empty
+df_no_code <- merged_data %>%
+  filter(is.na(`Country Code`) | `Country Code` == "") %>%
+  distinct(Country)
+
+# Display the distinct country names
+print(df_no_code)
+```
+
+This code is to filter the countries from the merge dataset that does not contain Country Code or Missing and based on the output there are multiple organization,regions and economic groups which aggregate data as well as 4 parts of United Kingdom from multiple countries.
+
+```{r}
+# Filter countries that has no country code and excluding "World"
+merged_data2 <- merged_data %>%
+  filter(!is.na(`Country Code`) & `Country Code` != "" & Country != "World")
+```
+
+After identifying the countries without any country code. The next thing to do is to omit the rows which contains those including the 4 parts of UK since they don't have GDP and Population whereas UK had.The code above executes them all.
+
+```{r}
+length(unique(merged_data2$Country))
+```
+
+```{r}
+library(dplyr)
+
+non_countries <- c("American Samoa", "Bermuda", "Cook Islands", "Greenland", 
+                   "Guam", "Niue", "Northern Mariana Islands", "Puerto Rico", 
+                   "Tokelau", "United States Virgin Islands", "Palestine", "Taiwan")
+
+# Step 2: Filter the dataset to omit non-country entities
+cleaned_data <- merged_data2 %>%
+  filter(!Country %in% non_countries) 
+
+# Impute missing values for Population and GDP_per_capita by using the median of each country
+merged_data3 <- cleaned_data %>%
+  group_by(Country) %>%
+  mutate(
+    Population = ifelse(is.na(Population), ifelse(all(is.na(Population)), 0, median(Population, na.rm = TRUE)), Population),
+    GDP_per_capita = ifelse(is.na(GDP_per_capita), ifelse(all(is.na(GDP_per_capita)), 0, median(GDP_per_capita, na.rm = TRUE)), GDP_per_capita)
+  ) %>%
+  ungroup()  # Remove grouping to return the dataframe to normal
+# Check if there are still any missing values
+colSums(is.na(merged_data3))
+```
+
+According to several sources, There are 12 countries that are not an actual countries from the dataset.The countries American Samoa ,Guam,Northern Mariana Islands, Puerto Rico, and United States Virgin Islands are US territories(List of Countries by Continent 2024, n.d.).Cook Islands and Niue are in free association of New Zealand (List of Countries by Continent 2024, n.d.). Bermuda is British Overseas territory (Heaton & Rushe, 2024).Tokelau is a dependent territory of New Zealand (Foster, 1998).Greenland is part of Kingdom of Denmark(List of Countries by Continent 2024, n.d.). Palestine is not fully independent state and Taiwan is part of China (List of Countries by Continent 2024, n.d.) .Which later will be ommited since part of this investigation will be focusing the death of each countries.
+
+After omitting the non countries, we impute with median if there are existing values for population and GDP, otherwise set to 0 if all are missing and in the end check if there is any missing values just to be sure.
+
+```{r}
+#create a new column for Decision Tree called Death rate proxy and Class
+merged_data3$Death_Rate_Proxy<-rowSums(merged_data3[,4:31],na.rm=TRUE)
+#Create a new variable as the proportion of Death_Rate_Proxy over Population
+merged_data3$Death_Proxy_Proportion <- merged_data3$Death_Rate_Proxy / merged_data3$Population
+
+#calculate the median value from death rate proxy to create a class and convert them to factor
+median_death<-median(merged_data3$Death_Proxy_Proportion,na.rm=TRUE)
+merged_data3$Death_Rate_Class <- ifelse(merged_data3$Death_Proxy_Proportion > median_death, "High", "Low")
+merged_data3$Death_Rate_Class <- as.factor(merged_data3$Death_Rate_Class)
+levels(merged_data3$Death_Rate_Class)
+
+```
+
+This part is where we are doing a feature engineering by adding two new columns called death rate class and the approximation death and how the death rate class be determined is by setting a condition where the mean of the death approximation whether it is greater or not.
+
+```{r}
+#to check if the feature engineer data has imbalance dataset
+table(merged_data3$Death_Rate_Class)
+```
+
+This is to check if the dataset is imbalanced or not.
+
+# Visualisation:
+
+```{r}
+#How GDP and population influence the prevalence of different causes of death in countries based on their death rate (High/Low).
+library(ggplot2)
+library(scales)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(dplyr)
+library(reshape2)
+
+
+ggplot(merged_data3, aes(x = Smoking, y = GDP_per_capita)) +
+  geom_point(alpha = 0.6, color = "steelblue") +
+  geom_smooth() +
+  labs(title = "Scatter Plot of Smoking vs GDP per Capita", 
+       x = "Smoking (Cigarettes per Adult per Day)", 
+       y = "GDP per Capita") +
+  theme_minimal() +
+  
+  # Annotation for high GDP per capita outliers with low smoking rates
+  annotate("text", x = 5, y = 150000, label = "High GDP per Capita in Countries with Low Smoking\n(E.g., Luxembourg, Norway)", 
+           size = 3, color = "red", fontface = "bold", hjust = 0) +
+  annotate("segment", x = 5, xend = 6, y = 150000, yend = 125000, 
+           color = "red", arrow = arrow(length = unit(0.2, "cm"))) +
+  
+  # Annotation for large smoking rates and lower GDP per capita
+  annotate("text", x = 20, y = 10000, label = "High Smoking with Lower GDP per Capita\n(E.g., Russia, Indonesia)", 
+           size = 3, color = "red", fontface = "bold", hjust = 1) +
+  annotate("segment", x = 20, xend = 19, y = 10000, yend = 9000, 
+           color = "red", arrow = arrow(length = unit(0.2, "cm"))) +
+  
+  # Annotation for the general trend line
+  annotate("text", x = 10, y = 70000, label = "General Trend:\nHigher Smoking Rates Correlate\nwith Lower GDP per Capita", 
+           size = 3, color = "blue", fontface = "italic", hjust = 0) +
+
+  # Annotation for mid-level smoking rates and moderate GDP
+  annotate("text", x = 12, y = 50000, label = "Moderate Smoking and GDP\n(E.g., Brazil, Turkey)", 
+           size = 3, color = "darkgreen", fontface = "italic", hjust = 0) +
+  annotate("segment", x = 12, xend = 11, y = 50000, yend = 45000, 
+           color = "darkgreen", arrow = arrow(length = unit(0.2, "cm"))) +
+  
+  scale_x_continuous(labels = scales::comma)  # Format x-axis for readability
+
+#Histogram for Population
+ggplot(merged_data3, aes(x = Population)) +
+  geom_histogram(binwidth = 50000000, fill = "steelblue", color = "black") +
+  labs(title = " Population Distribution", 
+       x = "Log(Population)", 
+       y = "Frequency") +
+  theme_minimal()
+#transformed
+ggplot(merged_data3, aes(x = Population)) +
+  geom_histogram(binwidth = 0.2, fill = "steelblue", color = "black") +
+  labs(title = "Log-Scaled Population Distribution", 
+       x = "Log(Population)", 
+       y = "Frequency") +
+  theme_minimal() +
+  # Apply log scale transformation on x-axis
+  scale_x_log10(labels = scales::comma) + # Log scale for x-axis and format numbers
+  
+  ylim(0, 1000) +  # Maximum frequency capped at 1000
+  # Annotation for most frequent range in log scale
+  annotate("text", x = 10^7, y = 900, label = "Most frequent range", color = "black", size = 4, fontface = "italic") +
+  annotate("segment", x = 10^7, xend = 10^7, y = 0, yend = 900, color = "black", linetype = "dashed") # Dashed line at the frequent range
+
+#Boxplot for GDP
+
+ggplot(merged_data3,aes(x=Death_Rate_Class,y=GDP_per_capita,fill=Death_Rate_Class))+
+  geom_boxplot()+
+  labs(title= "GDP per Capita by Death Rate Classification", x = "Death Rate Class", y = "GDP per Capita") +
+  theme_minimal()+
+  annotate("text", x = 1, y = 50000, label = "Outlier", color = "red", size = 4, fontface = "italic") +
+  annotate("segment", x = 1, xend = 1, y = 10000, yend = 50000, color = "red", arrow = arrow(length = unit(0.2, "cm")))
+
+#transformed
+ggplot(merged_data3,aes(x=Death_Rate_Class,y=GDP_per_capita,fill=Death_Rate_Class))+
+  geom_boxplot()+
+  scale_y_log10() +
+  labs(title= "GDP per Capita by Death Rate Classification", x = "Death Rate Class", y = "log(GDP per Capita)") +
+  theme_minimal()+
+  annotate("text", x = 1, y = 50000, label = "Outlier", color = "red", size = 4, fontface = "italic") +
+  annotate("segment", x = 1, xend = 1, y = 10000, yend = 50000, color = "red", arrow = arrow(length = unit(0.2, "cm")))
+
+# Map Viz-Load world map data
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+# Rename "United States" to "United States of America" in your dataset
+merged_data_US <- merged_data3 %>%
+  mutate(Country = ifelse(Country == "United States", "United States of America", Country),
+         Country = ifelse(Country == "South Sudan", "S. Sudan", Country),
+         Country = ifelse(Country == "Central African Republic", "Central African Rep.", Country),
+         Country = ifelse(Country == "Eswatini", "eSwatini", Country),
+         Country = ifelse(Country == "Micronesia (country)", "Micronesia", Country),
+         Country = ifelse(Country == "East Timor", "Timor-Leste", Country),
+         Country = ifelse(Country == "Dominican Republic", "Dominican Rep.", Country),
+         Country = ifelse(Country == "Democratic Republic of Congo", "Dem. Rep. Congo", Country),
+         Country = ifelse(Country == "Cape Verde", "Cabo Verde", Country),
+         Country = ifelse(Country == "Antigua and Barbuda", "Antigua and Barb.", Country),
+         Country = ifelse(Country == "Bosnia and Herzegovina", "Bosnia and Herz.", Country),
+         Country = ifelse(Country == "Cote d'Ivoire", "Côte d'Ivoire", Country),
+         Country = ifelse(Country == "Equatorial Guinea", "Eq. Guinea", Country),
+         Country = ifelse(Country == "Marshall Islands", "Marshall Is.", Country),
+         Country = ifelse(Country == "Northern Mariana Islands", "N. Mariana Is.", Country),
+         Country = ifelse(Country == "Saint Kitts and Nevis", "St. Kitts and Nevis", Country),
+         Country = ifelse(Country == "Saint Vincent and the Grenadines", "St. Vin. and Gren.", Country),
+         Country = ifelse(Country == "Sao Tome and Principe", "São Tomé and Principe", Country),
+         Country = ifelse(Country == "Solomon Islands", "Solomon Is.", Country))
+
+# Prepare the dataset for merging
+map_data <- merged_data_US %>%
+  dplyr::select(Country, Smoking) %>%
+  group_by(Country) %>%
+  summarise(Air.pollution = mean(Smoking, na.rm = TRUE))
+
+# Merge the map data with your dataset
+world_data <- left_join(world, map_data, by = c("name" = "Country"))
+
+# Plot the map with Outdoor air pollution
+ggplot(data = world_data) +
+  geom_sf(aes(fill = Air.pollution)) +
+  scale_fill_viridis_c(option = "C", na.value = "grey50") +
+  labs(title = "Global Impact of Smoking on Mortality ", fill = "Air Pollution") +
+  theme_minimal()+
+  annotate("text", x = 104.1954, y = 35.8617, label = "Highest smoking death", color = "black", size = 3, fontface = "bold") +
+  annotate("segment", x = 104.1954, xend = 120, y = 35.8617, yend = 35, color = "black", arrow = arrow(length = unit(0.2, "cm"))) +
+  
+ annotate("text", x = 120.9605, y = 23.6978, label = "Taiwan is part of China (not a country)", color = "black", size = 2.5, fontface = "italic") +
+  annotate("segment", x = 120.9605, xend = 120, y = 23.6978, yend = 25, color = "black", arrow = arrow(length = unit(0.2, "cm"))) +
+  annotate("text", x = -42.6043, y = 71.7069, label = "Greenland: Territory owned by Denmark", color = "red", size = 2.5, fontface = "italic") +
+  annotate("segment", x = -42.6043, xend = -40, y = 71.7069, yend = 70, color = "red", arrow = arrow(length = unit(0.2, "cm"))) +
+  annotate("text", x = 0, y = -75, label = "Antarctica is a Continent", color = "red", size = 3, fontface = "italic") 
+  annotate("text", x = 0, y = -75, label = "Antarctica is a Continent", color = "red", size = 4, fontface = "italic")
+
+# Assuming multiple death causes like Air Pollution, Blood Pressure, and Sodium Intake
+death_causes <- merged_data3[, c("Outdoor.air.pollution", "High.systolic.blood.pressure", "Diet.high.in.sodium", 
+                                 "Diet.low.in.whole.grains","Alochol.use","Unsafe.water.source","Secondhand.smoke",
+                               "Low.birth.weight","Diet.low.in.fruits","Child.wasting","Diet.low.in.nuts.and.seeds","Iron.deficiency", 
+                               "Unsafe.sex","Household.air.pollution.from.solid.fuels","Diet.low.in.Vegetables","Low.physical.activity", 
+                               "Smoking", "High.fasting.plasma.glucose","Air.pollution","High.body.mass.index","Unsafe.sanitation",
+                               "No.access.to.handwashing.facility","Drug.use" ,"Low.bone.mineral.density","Vitamin.A.deficiency", 
+                               "Child.stunting","Discontinued.breastfeeding","Non.exclusive.breastfeeding","Death_Rate_Class")]
+
+# Melt data for ggplot
+death_causes_melted <- melt(death_causes, id.vars = "Death_Rate_Class", 
+                            variable.name = "Death_Cause", value.name = "Value")
+
+# Stacked bar chart with Death Cause on the x-axis and Death Rate Classification stacked
+ggplot(death_causes_melted, aes(x = Death_Cause, y = Value, fill = Death_Rate_Class)) +
+  geom_bar(stat = "identity", position = "fill") +
+  labs(title = "Stacked Bar Chart of Health Causes by Death Rate Classification",
+       x = "Death Causes", y = "Contribution of Health Causes") +
+  theme_minimal() +
+  coord_flip()+
+  scale_fill_brewer(palette = "Set2") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+1.From the given Scatter plot. reveals a pattern where countries with lower smoking rates tend to have higher GDP per capita, such as Luxembourg and Norway (highlighted). The general trend shows that countries with higher smoking rates appear to have lower GDP per capita.Also some countries with lower GDP per capita may experience a high smoking death rates.
+
+2.The histograms of population shows the distribution of countries by population, the first diagram show there's a right skewness and also indicating that the data is not properly distributed since the numbers of population may rage over a million and needs to to be transformed to see the precise distribution.
+
+After the transformation(log-transformed). Most countries fall within a specific population range (around 10 million). This helps to show the skewness in population distribution, with fewer countries having very high populations.
+
+3.The box plots shows a comparison of GDP per capita between countries with high and low death rates.the first ones also show a rough results since the GDP i ranging around a million above same as the previous plot and lots of outliers were detected which give unclear detail regarding the plot.
+
+After the transformation.Countries with lower death rates tend to have higher GDP per capita, which suggests that wealthier countries may have better healthcare and lower death rates. There's an outlier identified in the high death rate group.
+
+4.The world map shows the death counts by smoking accross countries.To do so, we import the rnaturalearth which include sf that holds and facilitates interaction with natural earth map data(Rnaturalearth Package - RDocumentation, n.d.).The map reveals significant smokers in certain countries, particularly in densely populated regions such as China which had most of the deaths by smoking. This can be a useful visualization for correlating smoking with other health outcomes .
+
+5.This stacked bar chart shows the contribution of various health causes to both high and low death rate classifications. It clearly illustrates that certain health factors, such as Unsafe Sanitation, High Body Mass Index, Smoking, and Air Pollution, are more strongly associated with high death rates.
+
+In contrast, for low death rates, we observe significant contributions from causes such as Alcohol Use, Diet High in Sodium, and Diet Low in Whole Grains, where the percentages are notably higher compared to the high death rate group.
+
+# Classification
+
+## Decision Tree
+
+```{r}
+#FORMULA
+
+#performance measures
+performanceMeasures <- function(ytrue, ypred, model.name = "model") {
+  cmat <- table(actual = ytrue, predicted = ypred )#confmatrix
+  accuracy <- sum(diag(cmat)) / sum(cmat)#accuracy
+  precision <- cmat[2, 2] / sum(cmat[, 2])#precision
+  recall <- cmat[2, 2] / sum(cmat[2, ]) #recall
+  f1 <- 2 * precision * recall / (precision + recall) # F1 Score
+  # Return the results in a data frame
+  data.frame(model = model.name, precision = precision, recall = recall, f1 = f1, accuracy = accuracy)
+}
+```
+
+This is a function to measure the performance of each classifier that is used during the project which contains accuracy,precision,recall and f1.The number they provide can also gives us information whether our model is overfitting or not.
+
+```{r}
+#Decision Tree
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(ROCit)
+#Split test and training data and deploy Decision Tree
+set.seed(123)
+
+# Split data into training and test sets
+split_index <- createDataPartition(merged_data3$Death_Rate_Class, p = 0.8, list = FALSE)
+train_data <- merged_data3[split_index, ]
+test_data <- merged_data3[-split_index, ]
+
+# Further split the test set to create a calibration set (50% of test data)
+cal_index <- createDataPartition(test_data$Death_Rate_Class, p = 0.8, list = FALSE)  
+dCal <- test_data[cal_index, ]
+test_data2 <- test_data[-cal_index, ]
+
+# Train Decision Tree model
+tree_model <- rpart(Death_Rate_Class ~ .-`Country Code`- Country - Death_Rate_Proxy - Death_Proxy_Proportion,
+                    data = train_data, method = "class", 
+                    control = rpart.control(cp = 0.001, minsplit = 10, maxdepth = 10))
+
+# Visualize the Decision Tree
+rpart.plot(tree_model, extra = 104, fallen.leaves = TRUE, main = "Decision Tree for Health Risk Factor (High/Low)")
+
+# Predictions for Test Data
+predictions_tree_test <- predict(tree_model, newdata = test_data2, type = "class")
+
+# Confusion Matrix for Test Data
+cmat2 <- table(actual = test_data2$Death_Rate_Class, predicted = predictions_tree_test)
+print(cmat2)
+
+# Performance Measures for Test Data
+performance_tree <- performanceMeasures(test_data2$Death_Rate_Class, predictions_tree_test, model.name = "Decision Tree")
+print(performance_tree)
+
+# ROC and AUC for Training, Test, and Calibration Data
+predictions_prob_train <- predict(tree_model, newdata = train_data, type = "prob")[, 2]  # Probability for "High" class
+predictions_prob_test <- predict(tree_model, newdata = test_data2, type = "prob")[, 2]   # Probability for "High" class
+predictions_prob_cal <- predict(tree_model, newdata = dCal, type = "prob")[, 2]         # Probability for "High" class
+
+# ROC Curves
+rocit_train <- rocit(score = predictions_prob_train, class = train_data$Death_Rate_Class)
+rocit_test <- rocit(score = predictions_prob_test, class = test_data2$Death_Rate_Class)
+rocit_cal <- rocit(score = predictions_prob_cal, class = dCal$Death_Rate_Class)
+
+# Print AUC for all datasets
+rocit_train$AUC
+rocit_test$AUC
+rocit_cal$AUC
+```
+
+For the Decision Tree, the model started with the whole features except Country Code, Country, Death_Rate_Proxy, Death_Proxy_Proportion.The reason for Country Code and Country since they have extremely high importance compared to the others as well as the decision tree might be relying on geographical identifiers such as country. For Death_Rate_Proxy and Death_Proxy_Proportion is just for feature engineering and the existence of the variable is for determining the target variable which is Death_Rate_Class.
+
+After running the model, based on the performance measures and ROC/AUC. It show that the model is overfitting since the result from both performance measures and ROC/AUC is above 0.9.Which means it is close of being a perfect model.
+
+## Feature Selection: Feature Importance
+
+```{r}
+# Get feature importance
+importance <- varImp(tree_model)
+print(importance)
+```
+
+One of the Feature selection used for Decision Tree is Feature Importance and using varImp() to generate the importance score based on the first model(varImp Function - RDocumentation, n.d.). From here we can determine the threshold on the basis of the overall score from each variable.
+
+Given from the result most of the variables has the overall score greater than 100. Which means there are a lot of variables that can be used in the second model.
+
+```{r}
+#Second DT Model
+# Selected important features (you should define 'selected_features' based on importance scores)
+selected_features <- rownames(importance)[importance$Overall > 100]  # Example threshold
+dCal_selected <- dCal[, c(selected_features, "Death_Rate_Class")] # calibration
+train_data_selected<-train_data[, c(selected_features, "Death_Rate_Class")]
+
+# Retrain the model with the selected features
+tree_model_threshold <- rpart(Death_Rate_Class ~ ., data = train_data_selected, method = "class")
+# Visualize the refined tree
+rpart.plot(tree_model_threshold, extra = 104, fallen.leaves = TRUE, main = "Refined Decision Tree for Health risk factor (High/Low)")
+test_data_selected <- test_data2[, c(selected_features, "Death_Rate_Class")]
+
+# Predict on the test data using the refined model
+predictions_tree_refined <- predict(tree_model_threshold, newdata = test_data_selected, type = "class")
+
+# Confusion matrix for refined model
+cmat_refined <- table(actual = test_data_selected$Death_Rate_Class, predicted = predictions_tree_refined)
+print(cmat_refined)
+
+# Performance measures for the refined model
+performance_tree_refined <- performanceMeasures(test_data_selected$Death_Rate_Class, predictions_tree_refined, model.name = "Refined Decision Tree")
+print(performance_tree_refined)
+
+### Predictions for the data
+predictions_tree_train_prob <- predict(tree_model_threshold, newdata = train_data_selected, type = "prob")[,2]
+predictions_tree_test_prob <- predict(tree_model_threshold, newdata = test_data_selected, type = "prob")[,2]
+predictions_tree_cal_prob <- predict(tree_model_threshold, newdata = dCal_selected, type = "prob")[,2]
+
+# ROC curve for the training data
+rocit_train <- rocit(score = predictions_tree_train_prob, class = train_data_selected$Death_Rate_Class)
+rocit_test <- rocit(score = predictions_tree_test_prob, class = test_data_selected$Death_Rate_Class)
+rocit_cal <- rocit(score = predictions_tree_cal_prob, class = dCal_selected$Death_Rate_Class)
+
+# AUC values using ROCit
+rocit_train$AUC
+rocit_test$AUC
+rocit_cal$AUC
+```
+
+Then, we select the feature on the basis of threshold which is greater than 100. So feature that has a score below 100 will not be selected for the second model and then repeat the process as the first model
+
+After the second model is deployed. the result based on the performance measures show slightly better than the first one ranging from 0.8 to 0.9 from the performance measure and AUC values.
+
+```{r}
+# ROC and AUC for the test data from both original and refined models
+
+# Predictions probabilities for the test data from the original and refined models
+predictions_prob_test_original <- predict(tree_model, newdata = test_data2, type = "prob")[, 2]   # Original model
+predictions_prob_test_refined <- predict(tree_model_threshold, newdata = test_data_selected, type = "prob")[, 2]  # Refined model
+
+# ROC Curves using ROCit for test data
+rocit_test_original <- rocit(score = predictions_prob_test_original, class = test_data2$Death_Rate_Class)
+rocit_test_refined <- rocit(score = predictions_prob_test_refined, class = test_data_selected$Death_Rate_Class)
+
+# Plot ROC curves for the test data from both models
+plot(rocit_test_original, col = "red", main = "ROC Curves for Test Data (Original vs Refined Model)", lwd = 2)
+lines(rocit_test_refined$TPR ~ rocit_test_refined$FPR, col = "green", lwd = 2)
+
+# Add legend to distinguish between models
+legend("bottomright", legend = c("Original Model", "Refined Model"), col = c("red", "green"), lwd = 2)
+
+# AUC values for both models
+cat("AUC for Original Model:", rocit_test_original$AUC, "\n")
+cat("AUC for Refined Model:", rocit_test_refined$AUC, "\n")
+
+```
+
+After running the first and the second model, we then plot the ROC Curve the from both model using the test data. Looking at the curve, it appears the second one shows a better performance compared to the first one and the AUC values also supports the results.
+
+## Logistic Regression
+
+```{r}
+log_data <- merged_data3
+# Convert 'Death_Rate_Class' into binary (1 for High, 0 for Low)
+log_data$Death_Rate_Class <- ifelse(log_data$Death_Rate_Class == "High", 1, 0)
+log_data$Death_Rate_Class<- as.factor(log_data$Death_Rate_Class)
+# Step 1: Create a copy of the dataset and scale the numerical variables
+numeric_cols <- sapply(log_data, is.numeric)  # Select only numeric columns
+columns_to_remove <- c("Country", "Country Code", "Death_Proxy_Proportion", "Death_Rate_Proxy", "Death_Rate_Class")  # Columns to exclude along with target variable
+log_data_numeric <- log_data[, numeric_cols]
+log_data_numeric <- log_data_numeric[, !(names(log_data_numeric) %in% columns_to_remove)]  # Remove unwanted columns
+
+# Step 2: Scale the remaining numerical data (excluding the target variable)
+log_data_scaled <- scale(log_data_numeric)
+
+log_data_scaled_df <- as.data.frame(log_data_scaled)
+
+# Step 4: Add back the target variable (Death_Rate_Class) to the scaled dataset
+log_data_final <- cbind(log_data_scaled_df, Death_Rate_Class = log_data$Death_Rate_Class)
+
+# Step 4: Split the dataset into train and test sets (80/20 split)
+set.seed(123)  # Set seed for reproducibility
+split_index <- createDataPartition(log_data_final$Death_Rate_Class, p = 0.8, list = FALSE)
+train_data_log <- log_data_final[split_index, ]
+test_data_log <- log_data_final[-split_index, ]
+
+# Further split the test set to create a calibration set (80% of test data)
+cal_index <- createDataPartition(test_data_log$Death_Rate_Class, p = 0.8, list = FALSE)
+dCal <- test_data_log[cal_index, ]
+test_data_log2 <- test_data_log[-cal_index, ]
+
+# Step 5: Fit the logistic regression model (exclude country and proxy variables)
+logistic_model <- glm(Death_Rate_Class ~ ., 
+                      data = train_data_log, family = binomial(link = "logit"))
+
+# Step 6: Model summary
+summary(logistic_model)
+
+# Step 7: Predict on the train, test, and calibration data
+predictions_Log_train <- predict(logistic_model, newdata = train_data_log, type = "response")
+predictions_Log <- predict(logistic_model, newdata = test_data_log2, type = "response")
+predictions_Log_Cal <- predict(logistic_model, newdata = dCal, type = "response")
+
+# Convert probabilities to binary classes (0 or 1)
+predicted_classes_Log <- ifelse(predictions_Log > 0.5, 1, 0)
+
+# Step 8: Confusion matrix: Compare actual test classes with predicted binary classes
+cmat <- table(actual = test_data_log2$Death_Rate_Class, predicted = predicted_classes_Log)
+print(cmat)
+
+performance_Log <- performanceMeasures(test_data_log2$Death_Rate_Class, predictions_Log, model.name = "Logistic Regression")
+performance_Log
+# Step 9: ROC and AUC for training, test, and calibration data
+rocit_log_train <- rocit(score = predictions_Log_train, class = train_data_log$Death_Rate_Class)
+rocit_log_test <- rocit(score = predictions_Log, class = test_data_log2$Death_Rate_Class)
+rocit_log_cal <- rocit(score = predictions_Log_Cal, class = dCal$Death_Rate_Class)
+
+# Step 11: Print AUC values for training, test, and calibration sets
+print(paste("AUC (Training):", rocit_log_train$AUC))
+print(paste("AUC (Testing):", rocit_log_test$AUC))
+print(paste("AUC (Calibration):", rocit_log_cal$AUC))
+```
+
+For Logistic Regression, the model also started with the whole features except for Country Code,Country,Death_Rate_Proxy and Death_Proxy_Proportion. The reason for Country Code and Country since they have extremely high importance compared to the others. For Death_Rate_Proxy and Death_Proxy_Proportion is just for feature engineering and the existence of the variable is for determining the target variable which is Death_Rate_Class.
+
+However, the data needs to be scaled first for logistic model and decided to duplicate the data to separate the normal data and the scaled one. Before scaling the data, the non numeric data type needs to be removed first since scaling can be done with numerical only and then adding back the target variable.
+
+After running the model, based on the performance measures and ROC/AUC. The result from both performance measures and ROC/AUC is above 0.9.Which means it is close of being a perfect model and perform well or a possibility after the fea
+
+## Feature Selection: Forward Selection
+
+```{r}
+# Fit an initial null model with no predictors
+null_model <- glm(Death_Rate_Class ~ 1, data = log_data_final, family = binomial(link = "logit"))
+
+# Fit a full model with all predictors
+full_model <- glm(Death_Rate_Class ~ ., data = log_data_final, family = binomial(link = "logit"))
+
+# Perform forward selection
+forward_model <- step(null_model, 
+                      scope = list(lower = null_model, upper = full_model), 
+                      direction = "forward", 
+                      trace = 0)
+forward_model
+```
+
+The Feature selection for logistic Regression is Deviance reduction.So to execute the deviance reduction, we need to calculate the null deviance with and to do so we have to create a function called Loglikeihood to measure how well a logistic regression model fits the data.Then use it to calculate the Null deviance which assumes that there are no predictor variables, and all observations receive the same prediction.
+
+then we use the null deviance to measure both numerical and categorical variable with loops. After that, show the selected variables from the null deviances use it for the second logistic model.The selected variables are Year,Outdoor.air.pollution, High.systolic.blood.pressure , Diet.high.in.sodium, Diet.low.in.whole.grains, Alochol.use, Diet.low.in.fruits, Unsafe.water.source, Secondhand.smoke, Low.birth.weight , Child.wasting, Unsafe.sex, Diet.low.in.nuts.and.seeds, Household.air.pollution.from.solid.fuels, Smoking Air.pollution, Unsafe.sanitation , No.access.to.handwashing.facility, Vitamin.A.deficiency, Child.stunting, Discontinued.breastfeeding, Non.exclusive.breastfeeding , Iron.deficiency, GDP_per_capita, Death_Rate_Proxy, and Death_Proxy_Proportion.
+
+```{r}
+# Second Logistic Model
+# Create the formula dynamically from the selected variables
+
+logistic_model_selected <-  glm(formula = Death_Rate_Class ~ Vitamin.A.deficiency + Unsafe.water.source + 
+    Diet.low.in.nuts.and.seeds + Population + Smoking + Child.wasting + 
+    Unsafe.sex + Outdoor.air.pollution + High.fasting.plasma.glucose + 
+    Diet.high.in.sodium + Low.birth.weight + High.systolic.blood.pressure + 
+    No.access.to.handwashing.facility + Child.stunting + Iron.deficiency + 
+    Air.pollution + Drug.use + Alochol.use + Year + High.body.mass.index + 
+    Diet.low.in.whole.grains, family = binomial(link = "logit"), 
+    data = log_data_final)
+
+# Model summary
+summary(logistic_model_selected)
+
+selected_features <- c("Vitamin.A.deficiency", "Unsafe.water.source", 
+                       "Diet.low.in.nuts.and.seeds", "Population", "Smoking", 
+                       "Child.wasting", "Unsafe.sex", "Outdoor.air.pollution", 
+                       "High.fasting.plasma.glucose", "Diet.high.in.sodium", 
+                       "Low.birth.weight", "High.systolic.blood.pressure", 
+                       "No.access.to.handwashing.facility", "Child.stunting", 
+                       "Iron.deficiency", "Air.pollution", "Drug.use", "Alochol.use", 
+                       "Year", "High.body.mass.index", "Diet.low.in.whole.grains")
+
+# Subset train, test, and calibration data to only include selected features
+train_data_log_s <- train_data_log[, c(selected_features, "Death_Rate_Class")]
+test_data_log2_s <- test_data_log2[, c(selected_features, "Death_Rate_Class")]
+dCal_s <- dCal[, c(selected_features, "Death_Rate_Class")]
+
+
+# Step 2: Predict on the test data using the selected model
+# Predict probabilities on the test data
+predictions_Log_train_selected <- predict(logistic_model_selected, newdata = train_data_log_s, type = "response")
+predictions_Log_selected <- predict(logistic_model_selected, newdata = test_data_log2_s, type = "response")
+predictions_Log_Cal_selected <- predict(logistic_model_selected, newdata = dCal_s, type = "response")
+
+# Convert probabilities to binary classes (0 or 1)
+predicted_classes_Log_selected <- ifelse(predictions_Log_selected > 0.5, 1, 0)
+
+# Confusion matrix: Compare actual test classes with predicted binary classes
+cmat_selected <- table(actual = test_data_log2_s$Death_Rate_Class, predicted = predicted_classes_Log_selected)
+print("Confusion Matrix:")
+print(cmat_selected)
+
+# Performance Measures (assuming you have a custom function for this)
+performance_Log <- performanceMeasures(test_data_log2_s$Death_Rate_Class, predicted_classes_Log_selected, model.name = "Logistic Regression")
+performance_Log
+
+# ROC and AUC for training and test data
+rocit_log_train <- rocit(score = predictions_Log_train_selected, class = train_data_log_s$Death_Rate_Class)
+rocit_log_test <- rocit(score = predictions_Log_selected, class = test_data_log2_s$Death_Rate_Class)
+rocit_log_cal <- rocit(score = predictions_Log_Cal_selected, class = dCal_s$Death_Rate_Class)
+
+# Step 5: Print AUC values for training, test, and calibration sets using ROCit
+print(paste("AUC (Training):", rocit_log_train$AUC))
+print(paste("AUC (Testing):", rocit_log_test$AUC))
+print(paste("AUC (Calibration):", rocit_log_cal$AUC))
+```
+
+Then, we select the feature from the Forward Selection method.After the second model is deployed. the result shows worse than the first one since the result from both performance measures and ROC/AUC is above 0.9.Which means it is close of being a perfect model. This could mean that the model could actually perform well or could be a sign of overfitting.
+
+There are several way to minimize the potential of overfitting. a feature selection is one which has been done above for the second model however the result is yet to be convincing. there is also called regularization which will be done in the next step.
+
+
+## Regularization (Lasso)
+
+```{r}
+library(glmnet)
+
+# Step 1: Prepare the data for glmnet
+# Convert data into matrix format for glmnet
+X_train <- as.matrix(train_data_log[ , !(names(train_data_log) %in% c("Death_Rate_Class"))])  # Exclude target
+y_train <- as.numeric(as.character(train_data_log$Death_Rate_Class))  # Convert factor to numeric
+
+X_test <- as.matrix(test_data_log2[ , !(names(test_data_log2) %in% c("Death_Rate_Class"))])  # Test data
+y_test <- as.numeric(as.character(test_data_log2$Death_Rate_Class))  # Test labels
+
+# Calibration data
+X_cal <- as.matrix(dCal[ , !(names(dCal) %in% c("Death_Rate_Class"))])  # Calibration data
+y_cal <- as.numeric(as.character(dCal$Death_Rate_Class))  # Calibration labels
+
+# Step 2: Fit a Logistic Regression Model with L1 Regularization (Lasso)
+# Fit Lasso regularized logistic regression model using cross-validation to select lambda
+cv_lasso <- cv.glmnet(X_train, y_train, family = "binomial", alpha = 1,maxit=200000,lambda.min.ratio = 1e-3)  # alpha = 1 for Lasso (L1 regularization)
+
+
+# Retrieve the optimal lambda value from cross-validation
+best_lambda <- cv_lasso$lambda.min
+print(paste("Optimal Lambda:", best_lambda))
+
+# Plot the cross-validation curve to visualize lambda selection
+plot(cv_lasso)
+
+# Step 3: Make Predictions Using the Lasso Model
+# Predict probabilities on training, test, and calibration data
+predictions_train <- predict(cv_lasso, s = best_lambda, newx = X_train, type = "response")
+predictions_test <- predict(cv_lasso, s = best_lambda, newx = X_test, type = "response")
+predictions_cal <- predict(cv_lasso, s = best_lambda, newx = X_cal, type = "response")
+
+# Convert predicted probabilities to binary classes (0 or 1) using a threshold of 0.5
+predicted_classes_train <- ifelse(predictions_train > 0.5, 1, 0)
+predicted_classes_test <- ifelse(predictions_test > 0.5, 1, 0)
+predicted_classes_cal <- ifelse(predictions_cal > 0.5, 1, 0)
+
+# Step 4: Evaluate the Model with a Confusion Matrix
+# Confusion matrix for the test data
+confusion_matrix_test <- table(actual = y_test, predicted = predicted_classes_test)
+print("Confusion Matrix (Test Data):")
+print(confusion_matrix_test)
+
+# Ensure that predictions are vectors (in case they are matrices)
+predictions_test <- as.vector(predictions_test)
+predictions_cal <- as.vector(predictions_cal)
+
+# Ensure that actual class labels are vectors (numeric or factor)
+y_test <- as.numeric(as.character(y_test))
+y_cal <- as.numeric(as.character(y_cal))
+
+# Step 5: ROC and AUC Calculation Using ROCit for Test and Calibration Data
+rocit_test_lasso <- rocit(score = predictions_test, class = y_test)
+rocit_cal_lasso <- rocit(score = predictions_cal, class = y_cal)
+# Step 6: Plot ROC Curves for Test and Calibration Data
+plot(rocit_test_lasso, col = "red", main = "ROC Curve - Lasso Regularized Logistic Regression")
+lines(rocit_cal_lasso$TPR ~ rocit_cal_lasso$FPR, col = "green", lwd = 2)
+legend("bottomright", legend = c("Test Data", "Calibration Data"), col = c("red", "green"), lwd = 2)
+
+# Step 7: Print AUC Values for Test and Calibration Data
+print(paste("AUC (Test Data):", rocit_test_lasso$AUC))
+print(paste("AUC (Calibration Data):", rocit_cal_lasso$AUC))
+
+```
+
+As mentioned previously, this is how the implemetation of regularization and we are use Lasso (L1) for this (Mount & Zumel, 2019). To start the training, test and calibration must transformed into a format suitable for cv.glmnet by creating a feature matrices and excluding the target variable only to be converted as numerical.
+
+The we fit the model by applying L1 Regularization and also tunes the lambda parameter to minimize the cross validation. Then we check the best optimal lambda in order to do prediction. Which later be used to fine the AUC values. From the result, it is shown that model still performs the same as the second model after feature selection and the AUC values is close to 1.
+
+```{r}
+
+# ROC and AUC for the test data from both original and refined models
+
+# Predictions probabilities for the test data from the original and refined models
+predictions_Log <- predict(logistic_model, newdata = test_data_log2, type = "response")
+predictions_Log_selected <- predict(logistic_model_selected, newdata = test_data_log2_s, type = "response")
+
+# ROC Curves using ROCit for test data
+rocit_log_test <- rocit(score = predictions_Log, class = test_data_log2$Death_Rate_Class)
+rocit_log_test2 <- rocit(score = predictions_Log_selected, class = test_data_log2_s$Death_Rate_Class)
+
+# Plot ROC curves for the test data from both models
+plot(rocit_log_test, col = "red", main = "ROC Curves for Test Data (Original vs Refined Model)", lwd = 2)
+lines(rocit_log_test2$TPR ~ rocit_log_test2$FPR, col = "green", lwd = 2)
+
+# Add legend to distinguish between models
+legend("bottomright", legend = c("Original Model", "Refined Model"), col = c("red", "green"), lwd = 2)
+
+# AUC values for both models
+cat("AUC for Original Model:", rocit_log_test$AUC, "\n")
+cat("AUC for Refined Model:", rocit_log_test2$AUC, "\n")
+
+```
+
+Having said that, we proceed to the comparison of first and second model for logistic regression and looking from the performance through ROC plot and AUC values.Since the regularization model show an overfitting results. It seems that the first one shows a reasonable results and performs well although there are some imbalances since the second model is too perfect and performs too well which is too odd.
+
+## Best model
+
+```{r}
+# ROC and AUC for the test data from both original and refined models
+
+# Predictions probabilities for the test data from the original and refined models
+predictions_Log <- predict(logistic_model, newdata = test_data_log2, type = "response")
+predictions_prob_test_refined <- predict(tree_model_threshold, newdata = test_data_selected, type = "prob")[, 2]  # Refined model
+
+# ROC Curves using ROCit for test data
+rocit_log_test <- rocit(score = predictions_Log, class = test_data_log2$Death_Rate_Class)
+rocit_test_refined <- rocit(score = predictions_prob_test_refined, class = test_data_selected$Death_Rate_Class)
+
+# Plot ROC curves for the test data from both models
+plot(rocit_log_test, col = "red", main = "ROC Curves for Test Data (Log best vs DT best)", lwd = 2)
+lines(rocit_test_refined$TPR ~ rocit_test_refined$FPR, col = "green", lwd = 2)
+
+# Add legend to distinguish between models
+legend("bottomright", legend = c("Log best Model", "DT best Model"), col = c("red", "green"), lwd = 2)
+
+# AUC values for both models
+cat("AUC for Log best Model:", rocit_log_test$AUC, "\n")
+cat("AUC for DT best Model:", rocit_test_refined$AUC, "\n")
+```
+The final step is to select the best model by comparing the two best models for each classifier and assessing how well they perform on the test data. The ROC curve and AUC (Area Under the Curve) are the metrics used in the main comparison. These criteria aid in identifying the model that performs best at class distinction.
+
+The Decision Tree model's AUC value of 0.8616 shows that it can effectively distinguish between the two classes (High and Low death rates). However, compared to the Decision Tree, the Logistic Regression model performs less well in class differentiation, as evidenced by its lower AUC of 0.7435.
+
+The Decision Tree model performs better in predicting the death rate class with greater accuracy and resilience, as evidenced by these AUC values, making it the superior classifier in this comparison. As a result, the Decision Tree model would be chosen as the project's final model.
+
+## LIME explainer
+
+```{r}
+# Load necessary library
+# Step 1: Ensure necessary libraries are loaded
+library(lime)
+
+# Step 2: Define the model_type and predict_model functions
+model_type.glm <- function(x, ...) {
+  return("classification")
+}
+
+predict_model.glm <- function(x, newdata, ...) {
+  preds <- predict(x, newdata = newdata, type = "response")
+  return(as.data.frame(cbind(1 - preds, preds)))  # Return probabilities
+}
+
+model_type.rpart <- function(x, ...) {
+  return("classification")
+}
+
+predict_model.rpart <- function(x, newdata, ...) {
+  preds <- predict(x, newdata = newdata, type = "prob")
+  return(as.data.frame(preds))  # Return probabilities
+}
+
+# Create LIME explainers
+explainer_log <- lime(train_data_log, logistic_model)
+explainer_dt <- lime(train_data_selected, tree_model_threshold)
+# Run explain function
+explanation_dt <- explain(test_data_selected[1:5, ], explainer_dt, n_labels = 1, n_features = 5)
+explanation_log <- explain(test_data_log2[1:5, ], explainer_log, n_labels = 1, n_features = 5)
+
+#Plot the explanations
+plot_features(explanation_log)
+plot_features(explanation_dt)
+```
+
+This part is where the two model from Decision Tree and Logistic regression will be explained with LIME.The aim here is to interpret and explain the predictions.Also,the focus was on understanding how individual features contribute to the predictions.
+
+Here we used the best model from the two classifiers components and and use the explainer() to explain the features from two best models.Using these explainers, we generated explanations for the top 5 features influencing the predictions of the first 5 cases in the test datasets.
+
+For instance in Logistic Regression,The most significant determinants of predictions are Population, Unsafe.water.source, and Household.air.pollution in case 39. The degree to which the chosen features adequately explain the model's choice is shown by the explanation fit, which varies between situations and has values between 0.254 and 0.044. Features that support the anticipated class are represented by blue bars, and those that contradict it are shown by red bars.
+
+As for Decision Tree,similar features are employed, with the most significant ones being GDP per capita, population, and pollution hazards in case 1. With values like 0.076 and 0.180, the explanation fit is typically less than in the logistic model, which reflects the decision tree's threshold-based, rule-based design. Splits like GDP_per_capita <= 896, for instance, are used to provide precise, binary conclusions and explain 
+
+By comparing the two models, we gained insights into how the features influence the predictions differently. Logistic regression offers linear interpretability, while the decision tree provides a more complex, non-linear understanding of feature importance.
+
+# Clustering (k-means)
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(fpc)         # For kmeansruns() and clustering
+library(factoextra)   # For PCA and cluster visualization
+library(gridExtra)    # For arranging multiple plots
+
+# Assuming 'data' is already loaded, select relevant numerical features for clustering
+numerical_columns <- names(merged_data3)[sapply(merged_data3, is.numeric)]
+
+# Exclude 'Death_Proxy_Proportion' from the numerical columns
+numerical_columns <- setdiff(numerical_columns, c("Death_Rate_Proxy","Death_Proxy_Proportion","Death_Rate_Class"))
+
+# Select the relevant numerical data for clustering
+data_clustering <- merged_data3[, numerical_columns]
+
+data_clustering_scaled <- scale(data_clustering)
+
+# Step 2: Investigating Optimal Number of Clusters ------------------------
+
+# Use kmeansruns() from the fpc package to determine the best number of clusters using CH Index
+set.seed(123)  # Ensure reproducibility
+kmeans_result_ch <- kmeansruns(data_clustering_scaled, krange = 1:10, criterion = "ch")
+
+# Plot the CH Index results to identify the optimal k
+ch<-plot(kmeans_result_ch$crit, type = "b", pch = 19, 
+     xlab = "Number of clusters (k)", 
+     ylab = "Calinski-Harabasz Index",
+     main = "CH Index for K-means Clustering")
+
+# Print the suggested optimal number of clusters based on the CH Index
+optimal_k_ch <- kmeans_result_ch$bestk
+cat("Optimal number of clusters based on CH Index:", optimal_k_ch, "\n")
+
+# Use Average Silhouette Width (ASW) to compare
+kmeans_result_asw <- kmeansruns(data_clustering_scaled, krange = 1:10, criterion = "asw")
+
+# Plot the ASW results to identify the optimal k
+asw<-plot(kmeans_result_asw$crit, type = "b", pch = 19, 
+     xlab = "Number of clusters (k)", 
+     ylab = "Average Silhouette Width",
+     main = "ASW for K-means Clustering")
+
+# Print the suggested optimal number of clusters based on ASW
+optimal_k_asw <- kmeans_result_asw$bestk
+cat("Optimal number of clusters based on ASW:", optimal_k_asw, "\n")
+
+# Perform PCA for visualization purposes (reduces dimensionality to 2D)
+pca_result <- prcomp(data_clustering_scaled)
+
+# Function to visualize K-means clustering results for any number of clusters k
+visualize_kmeans <- function(data_scaled, k, pca_result) {
+  # Perform K-means clustering with the specified number of clusters
+  set.seed(123)
+  kmeans_model <- kmeans(data_scaled, centers = k, nstart = 20)
+  # Create a data frame for the PCA results
+  pca_df <- data.frame(PC1 = pca_result$x[, 1], PC2 = pca_result$x[, 2])
+  # Add the cluster assignments from K-means
+  pca_df$Cluster <- as.factor(kmeans_model$cluster)
+  # Create the plot
+  plot_kmeans <- ggplot(pca_df, aes(PC1, PC2, color = Cluster)) +
+    geom_point() +
+    stat_ellipse(geom = "polygon", alpha = 0.3) +
+    labs(title = paste("K-means Clustering with k =", k)) +
+    theme_minimal()
+  # Return the plot
+  return(plot_kmeans)
+}
+
+# Step 5: Visualize Clustering Results with grid.arrange() ----------------
+
+# Visualize for k = 2 ,3 ,4, 5
+plot_k2 <- visualize_kmeans(data_clustering_scaled, k = 2, pca_result)
+plot_k3 <- visualize_kmeans(data_clustering_scaled, k = 3, pca_result)
+plot_k4 <- visualize_kmeans(data_clustering_scaled, k = 4, pca_result)
+plot_k5 <- visualize_kmeans(data_clustering_scaled, k = 5, pca_result)
+
+# Arrange the plots in a 2x2 grid for comparison
+grid.arrange(plot_k2, plot_k3, plot_k4, plot_k5, nrow = 2)
+```
+
+In Clustering, K-means is used on the given dataset.To start,we need to scale the data first and exclude the non-numerical variable as the represent a catergorical variable and target variable.
+
+The Second step there are two methods to determine the optimal numbers of k which is the Calinski-Harabasz Index (CH) and the Average Silhouette Width (ASW).How CH works is based on the variance ratio, aiming to maximize the distance between clusters while minimizing the distance within clusters whereas ASW evaluates how similar an object is to its own cluster compared to other clusters, providing a measure of cluster cohesion and separation.
+
+after running the kmeans based on those two methods. CH and ASW get the same optimal value of 2.Using the optimal number of k, we need to visualize it and showing the data into groupn of clusters of 2,3,4,5.
+
+When visualizing clustering for k = 2, the two clusters are clearly distinct, indicating significant differences in the feature values, such as GDP and population, between the two groups. This suggests the data represents two different types of countries or regions. However, as the number of clusters increases (e.g., k = 3, 4, 5), the clusters become less distinct and begin to overlap. Forcing more clusters results in over-clustering, where the additional clusters don't provide meaningful separation, reducing the insight gained from the data.
+
+# References
+
+Foster, S. (1998, July 20). Tokelau | Polynesian Territory, New Zealand. Encyclopedia Britannica. https://www.britannica.com/place/Tokelau
+
+Heaton, P., & Rushe, G. J. (2024, October 3). Bermuda | Geography, History, & Facts. Encyclopedia Britannica. https://www.britannica.com/place/Bermuda
+
+List of countries by continent 2024. (n.d.). https://worldpopulationreview.com/country-rankings/list-of-countries-by-continent
+
+Mount, J., & Zumel, N. (2019). Practical Data Science with R, Second Edition. Simon and Schuster.
+
+rnaturalearth package - RDocumentation. (n.d.). https://www.rdocumentation.org/packages/rnaturalearth/versions/1.0.1
+
+varImp function - RDocumentation. (n.d.). https://www.rdocumentation.org/packages/modEvA/versions/3.18.2/topics/varImp
+
